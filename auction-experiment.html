@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auction Experiment</title>
+<style>
+  :root {
+    --a-color: #2563eb;      /* blue */
+    --a-bg:    #eff6ff;
+    --a-border:#93c5fd;
+    --b-color: #dc2626;      /* red */
+    --b-bg:    #fef2f2;
+    --b-border:#fca5a5;
+    --good:    #059669;
+    --bad:     #b91c1c;
+    --muted:   #6b7280;
+    --border:  #e5e7eb;
+    --card-bg: #ffffff;
+    --page-bg: #f3f4f6;
+    --accent:  #7c3aed;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--page-bg); color: #111827; }
+  body { min-height: 100vh; }
+  .wrap { max-width: 780px; margin: 0 auto; padding: 24px 16px; }
+  .wrap-wide { max-width: 1400px; margin: 0 auto; padding: 24px 16px; }
+  .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); margin-bottom: 16px; }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  h2 { font-size: 18px; margin: 0 0 12px; }
+  h3 { font-size: 15px; margin: 0 0 8px; }
+  p  { line-height: 1.5; margin: 0 0 12px; }
+  label { display: block; font-size: 13px; color: #374151; margin-bottom: 6px; }
+  input[type=number], input[type=text], select { width: 100%; padding: 10px 12px; font-size: 15px; border: 1px solid var(--border); border-radius: 8px; background: white; }
+  input[type=number]:focus, select:focus { outline: 2px solid var(--a-color); outline-offset: -1px; }
+  button { padding: 10px 18px; font-size: 15px; border-radius: 8px; border: 1px solid var(--border); background: white; cursor: pointer; font-weight: 500; }
+  button:hover:not(:disabled) { background: #f9fafb; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.primary { background: var(--a-color); color: white; border-color: var(--a-color); }
+  button.primary:hover:not(:disabled) { background: #1d4ed8; }
+  button.danger { background: var(--b-color); color: white; border-color: var(--b-color); }
+  button.danger:hover:not(:disabled) { background: #b91c1c; }
+  .row { display: flex; gap: 12px; align-items: center; }
+  .row > * { flex: 1; }
+  .small { font-size: 13px; color: var(--muted); }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .tag-a { background: var(--a-bg); color: var(--a-color); border: 1px solid var(--a-border); }
+  .tag-b { background: var(--b-bg); color: var(--b-color); border: 1px solid var(--b-border); }
+  .tag-robot { background: #f3e8ff; color: var(--accent); border: 1px solid #d8b4fe; }
+  .tag-muted { background: #f3f4f6; color: var(--muted); border: 1px solid var(--border); }
+
+  /* Tables */
+  table.data { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.data th, table.data td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: right; }
+  table.data th:first-child, table.data td:first-child { text-align: left; }
+  table.data th { background: #f9fafb; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; color: #374151; }
+  table.data td.mine { font-weight: 600; }
+  table.data td.good { color: var(--good); }
+  table.data td.bad  { color: var(--bad); }
+  table.data .br-cell { color: var(--accent); }
+
+  /* Countdown / round header */
+  .round-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 18px; background: #1f2937; color: white; border-radius: 12px; margin-bottom: 16px; }
+  .round-header .r-round { font-size: 18px; font-weight: 600; }
+  .round-header .r-time  { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .round-header .r-time.warn { color: #fbbf24; }
+  .round-header .r-time.danger { color: #f87171; }
+
+  /* Decision area */
+  .decision { display: flex; gap: 16px; align-items: flex-end; }
+  .decision > div { flex: 1; }
+  .bid-input input { font-size: 22px; font-weight: 600; text-align: center; padding: 14px; }
+  .submit-btn { padding: 14px 24px; font-size: 16px; }
+
+  /* Info boxes */
+  .info-box { background: #f9fafb; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-size: 13px; line-height: 1.5; }
+  .info-box strong { color: #111827; }
+  .feedback-box { background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 12px 14px; font-size: 14px; line-height: 1.6; }
+
+  /* Instructor */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .status-pill { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 500; }
+  .status-pill.active { background: #dcfce7; color: #166534; }
+  .status-pill.idle { background: #f3f4f6; color: var(--muted); }
+  .status-pill.done { background: #e0e7ff; color: #3730a3; }
+
+  .group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .group-tile { background: white; border: 1px solid var(--border); border-radius: 10px; padding: 12px; font-size: 13px; }
+  .group-tile h4 { margin: 0 0 8px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+
+  /* Results / charts */
+  .chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+  .chart-card { background: white; border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+  .chart-card h4 { margin: 0 0 6px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .chart-card .legend { font-size: 11px; color: var(--muted); display: flex; gap: 8px; }
+  .chart-card .legend span.a { color: var(--a-color); font-weight: 600; }
+  .chart-card .legend span.b { color: var(--b-color); font-weight: 600; }
+  .chart-svg { width: 100%; height: auto; display: block; }
+
+  .muted { color: var(--muted); }
+  .center { text-align: center; }
+  .mt { margin-top: 12px; } .mt2 { margin-top: 20px; }
+  .mb { margin-bottom: 12px; }
+  .hide { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="root">
+  <div class="wrap"><div class="card">Loading…</div></div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+/* ===========================================================================
+   AUCTION EXPERIMENT
+   --------------------------------------------------------------------------
+   Generalized first-price auction game for classroom use.
+   Three URL modes:
+     /              - student (default)
+     /?instructor   - instructor panel (start / wipe / submit robots & timeouts)
+     /?results      - live per-group line charts
+
+   See payoff/best-response logic in the GAME LOGIC section.
+   =========================================================================== */
+
+/* ---------- Firebase config ----------
+   NOTE: If you're reusing the cascade-experiment Firebase project, paste its
+   config here. The auction uses its own subtree (/auction/...) so it won't
+   collide with cascade data.                                                  */
+const firebaseConfig = {
+  apiKey: "REPLACE_ME",
+  authDomain: "cascade-experiment.firebaseapp.com",
+  databaseURL: "https://cascade-experiment-default-rtdb.firebaseio.com",
+  projectId: "cascade-experiment",
+  storageBucket: "cascade-experiment.appspot.com",
+  messagingSenderId: "REPLACE_ME",
+  appId: "REPLACE_ME"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+/* ---------- Constants ---------- */
+const NUM_GROUPS         = 30;
+const DEFAULT_NUM_ROUNDS = 20;
+const DEFAULT_ROUND_SECS = 30;
+const VALUE_A            = 80;
+const VALUE_B            = 60;
+const C_BID              = 20;
+const CLICKS_TOP         = 200;
+const CLICKS_SECOND      = 100;
+const ROUND_1_DEFAULT    = 21;
+const MIN_BID            = 1;
+const MAX_BID            = 100;
+
+const ROOT = 'auction'; // subtree under the Firebase DB
+
+/* Groups 1-10 have one robot. Odd groups: A is robot. Even groups: B is robot. */
+function isRobot(group, role) {
+  if (group < 1 || group > 10) return false;
+  return (group % 2 === 1 && role === 'A') || (group % 2 === 0 && role === 'B');
+}
+function valueOf(role) { return role === 'A' ? VALUE_A : VALUE_B; }
+
+/* ===========================================================================
+   GAME LOGIC
+   =========================================================================== */
+
+/* Deterministic seeded tiebreak in [0, 1), based on group/round/player.
+   Ensures all browsers compute the same outcome for the same round.           */
+function seededRand(...parts) {
+  let h = 2166136261 >>> 0;
+  const s = parts.join('|');
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return (h >>> 0) / 4294967296;
+}
+
+/* Payoff for a given player, bid, and slot. */
+function payoffOf(role, bid, slot) {
+  const v = role === 'A' ? VALUE_A : (role === 'B' ? VALUE_B : C_BID);
+  if (slot === 'top')    return CLICKS_TOP    * (v - bid);
+  if (slot === 'second') return CLICKS_SECOND * (v - bid);
+  return 0;
+}
+
+/* Resolve a round given both bids. C always bids C_BID.
+   Tiebreaking: sort desc by bid, tiebreak by a seeded pseudo-random key so all
+   viewers agree on the same outcome. Returns slots & payoffs for A and B.     */
+function resolveRound(group, round, bidA, bidB) {
+  const entries = [
+    { p: 'A', bid: bidA, key: seededRand(group, round, 'A') },
+    { p: 'B', bid: bidB, key: seededRand(group, round, 'B') },
+    { p: 'C', bid: C_BID, key: seededRand(group, round, 'C') }
+  ];
+  entries.sort((x, y) => (y.bid - x.bid) || (y.key - x.key));
+  const slots = {};
+  slots[entries[0].p] = 'top';
+  slots[entries[1].p] = 'second';
+  slots[entries[2].p] = 'none';
+  return {
+    slotA:   slots.A,
+    slotB:   slots.B,
+    payoffA: payoffOf('A', bidA, slots.A),
+    payoffB: payoffOf('B', bidB, slots.B)
+  };
+}
+
+/* Expected payoff for "us" bidding b against opponent bid oppBid, with own
+   value v. Random tiebreaking → average over all tied-rank outcomes.          */
+function expectedPayoff(b, oppBid, v) {
+  const others = [oppBid, C_BID];
+  let strictlyGreater = 0, equalCount = 1; // 1 = ourselves
+  for (const x of others) {
+    if (x > b) strictlyGreater++;
+    else if (x === b) equalCount++;
+  }
+  // Our possible ranks: (strictlyGreater+1) … (strictlyGreater+equalCount).
+  let expectedClicks = 0;
+  for (let rank = strictlyGreater + 1; rank <= strictlyGreater + equalCount; rank++) {
+    if (rank === 1) expectedClicks += CLICKS_TOP;
+    else if (rank === 2) expectedClicks += CLICKS_SECOND;
+  }
+  expectedClicks /= equalCount;
+  return expectedClicks * (v - b);
+}
+
+/* Best response: smallest bid in [1,100] maximising expected payoff.          */
+function bestResponse(role, oppBid) {
+  const v = valueOf(role);
+  let bestBid = MIN_BID, bestPay = expectedPayoff(MIN_BID, oppBid, v);
+  for (let b = MIN_BID + 1; b <= MAX_BID; b++) {
+    const p = expectedPayoff(b, oppBid, v);
+    if (p > bestPay) { bestBid = b; bestPay = p; }
+  }
+  return { bid: bestBid, payoff: bestPay };
+}
+
+/* ===========================================================================
+   TIME / ROUND MATH
+   =========================================================================== */
+
+function roundStartMs(expStart, roundSecs, roundIdx /*1-based*/) {
+  return expStart + (roundIdx - 1) * roundSecs * 1000;
+}
+function roundEndMs(expStart, roundSecs, roundIdx) {
+  return roundStartMs(expStart, roundSecs, roundIdx) + roundSecs * 1000;
+}
+function currentRound(expStart, roundSecs, numRounds, now) {
+  if (!expStart) return 0;
+  const elapsedMs = now - expStart;
+  if (elapsedMs < 0) return 0;
+  const r = Math.floor(elapsedMs / (roundSecs * 1000)) + 1;
+  return Math.min(r, numRounds + 1); // numRounds+1 = finished
+}
+
+/* ===========================================================================
+   MODE ROUTING
+   =========================================================================== */
+
+const params = new URLSearchParams(location.search);
+const mode = params.has('instructor') ? 'instructor'
+           : params.has('results')    ? 'results'
+           : 'student';
+
+const root = document.getElementById('root');
+function render(html, wide=false) {
+  root.innerHTML = `<div class="${wide ? 'wrap-wide' : 'wrap'}">${html}</div>`;
+}
+
+/* Shared state containers */
+let META = null;            // { experiment_start, num_rounds, round_seconds }
+let SUBMISSIONS = {};       // { groupKey: { roundKey: { A: {...}, B: {...} } } }
+
+/* Subscribe once, keep in sync. */
+db.ref(`${ROOT}/meta`).on('value', s => { META = s.val() || {}; onStateChange(); });
+db.ref(`${ROOT}/submissions`).on('value', s => { SUBMISSIONS = s.val() || {}; onStateChange(); });
+
+let tickHandle = null;
+function startTick() {
+  if (tickHandle) return;
+  tickHandle = setInterval(onTick, 250);
+}
+function onTick() { onStateChange(); }
+
+function onStateChange() {
+  if (mode === 'student')    renderStudent();
+  else if (mode === 'instructor') renderInstructor();
+  else if (mode === 'results')    renderResults();
+}
+
+/* ===========================================================================
+   STUDENT MODE
+   =========================================================================== */
+
+let studentState = {
+  group: null,       // 1..30
+  role:  null,       // 'A' | 'B'
+  locallySubmitted: {} // roundIdx -> true (for debouncing double-submit)
+};
+
+/* Student entry stored in sessionStorage so refresh doesn't lose position.   */
+(function restoreStudent(){
+  try {
+    const s = JSON.parse(sessionStorage.getItem('auction_student') || '{}');
+    if (s.group && s.role) { studentState.group = s.group; studentState.role = s.role; }
+  } catch(e) {}
+})();
+function persistStudent() {
+  sessionStorage.setItem('auction_student', JSON.stringify({
+    group: studentState.group, role: studentState.role
+  }));
+}
+
+function renderStudent() {
+  startTick();
+  if (!studentState.group || !studentState.role) return renderEntry();
+
+  const now = Date.now();
+  const expStart = META && META.experiment_start;
+  const numRounds = (META && META.num_rounds) || DEFAULT_NUM_ROUNDS;
+  const roundSecs = (META && META.round_seconds) || DEFAULT_ROUND_SECS;
+
+  if (!expStart) return renderStudentWaiting('Waiting for instructor to start…');
+  if (now < expStart) return renderStudentWaiting('Experiment starts shortly…');
+
+  const cr = currentRound(expStart, roundSecs, numRounds, now);
+  if (cr > numRounds) return renderStudentDone(numRounds);
+
+  renderStudentRound(cr, expStart, numRounds, roundSecs, now);
+}
+
+function renderEntry() {
+  const groupOptions = Array.from({length: NUM_GROUPS}, (_, i) => i + 1)
+    .map(g => `<option value="${g}">${g}</option>`).join('');
+  render(`
+    <div class="card">
+      <h1>Auction Experiment</h1>
+      <p>Enter your assigned group and position to join.</p>
+      <div class="row">
+        <div>
+          <label>Group</label>
+          <select id="inp-group"><option value="">—</option>${groupOptions}</select>
+        </div>
+        <div>
+          <label>Position</label>
+          <select id="inp-role"><option value="">—</option><option value="A">A</option><option value="B">B</option></select>
+        </div>
+      </div>
+      <div class="mt2">
+        <button class="primary" id="btn-join">Join</button>
+        <span class="small" style="margin-left:12px">Your instructor assigned you a group number and a position (A or B).</span>
+      </div>
+    </div>
+  `);
+  document.getElementById('btn-join').onclick = () => {
+    const g = parseInt(document.getElementById('inp-group').value, 10);
+    const r = document.getElementById('inp-role').value;
+    if (!g || !r) { alert('Please pick a group and a position.'); return; }
+    studentState.group = g;
+    studentState.role  = r;
+    persistStudent();
+    onStateChange();
+  };
+}
+
+function renderStudentWaiting(message) {
+  render(`
+    <div class="card">
+      <h1>Auction Experiment</h1>
+      <p><span class="tag ${studentState.role==='A' ? 'tag-a':'tag-b'}">Group ${studentState.group} · Position ${studentState.role}</span></p>
+      <p>${message}</p>
+      ${ruleSummaryHTML()}
+      <div class="mt2"><button id="btn-change">Change position</button></div>
+    </div>
+  `);
+  document.getElementById('btn-change').onclick = () => {
+    studentState.group = null; studentState.role = null;
+    sessionStorage.removeItem('auction_student');
+    onStateChange();
+  };
+}
+
+function renderStudentDone(numRounds) {
+  const { historyRows, totalPayoff } = studentHistory(numRounds);
+  render(`
+    <div class="card">
+      <h1>Auction Experiment — Complete</h1>
+      <p><span class="tag ${studentState.role==='A' ? 'tag-a':'tag-b'}">Group ${studentState.group} · Position ${studentState.role}</span></p>
+      <p>Thanks! The experiment is over. Here is your full history. Cumulative payoff: <strong>${fmtNum(totalPayoff)}</strong>.</p>
+      ${historyTableHTML(historyRows, true)}
+    </div>
+  `);
+}
+
+function renderStudentRound(cr, expStart, numRounds, roundSecs, now) {
+  const role = studentState.role;
+  const group = studentState.group;
+  const endMs = roundEndMs(expStart, roundSecs, cr);
+  const remainingMs = Math.max(0, endMs - now);
+  const remainingSecs = Math.ceil(remainingMs / 1000);
+  const timeClass = remainingSecs <= 5 ? 'danger' : (remainingSecs <= 10 ? 'warn' : '');
+
+  const { historyRows, totalPayoff } = studentHistory(cr - 1);
+  const mySub = (SUBMISSIONS?.[`g${group}`]?.[`r${cr}`]?.[role]) || null;
+
+  const header = `
+    <div class="round-header">
+      <div>
+        <div class="r-round">Round ${cr} of ${numRounds}</div>
+        <div class="small" style="opacity:0.8">Group ${group} · Position ${role} · your value per click is <strong>${valueOf(role)}</strong></div>
+      </div>
+      <div class="r-time ${timeClass}">${remainingSecs}s</div>
+    </div>`;
+
+  const decisionArea = mySub ? `
+    <div class="card">
+      <h2>Submitted ✓</h2>
+      <p>Your bid for round ${cr}: <strong>${mySub.bid}</strong>${mySub.auto ? ' <span class="tag tag-muted">auto</span>':''}.</p>
+      <p class="small">Waiting for the round to end. Results appear at the start of round ${cr+1}.</p>
+    </div>
+  ` : `
+    <div class="card">
+      <h2>Your bid for round ${cr}</h2>
+      ${ruleSummaryHTML(true)}
+      <div class="decision mt">
+        <div class="bid-input">
+          <label>Your bid (integer 1–100)</label>
+          <input type="number" id="bid-input" min="1" max="100" step="1" autocomplete="off" autofocus>
+        </div>
+        <div style="flex:0 0 auto">
+          <button class="primary submit-btn" id="btn-submit">Submit bid</button>
+        </div>
+      </div>
+      <p class="small mt">If you don't submit, your bid will be the best response to your opponent's previous-round bid (21 in round 1).</p>
+    </div>
+  `;
+
+  const history = historyRows.length ? `
+    <div class="card">
+      <h2>History (through round ${cr - 1})</h2>
+      ${historyTableHTML(historyRows, false)}
+      <p class="small mt">Cumulative payoff: <strong>${fmtNum(totalPayoff)}</strong></p>
+    </div>
+  ` : `
+    <div class="card">
+      <h2>History</h2>
+      <p class="small">No previous rounds yet.</p>
+    </div>
+  `;
+
+  render(header + decisionArea + history);
+
+  if (!mySub) {
+    const inp = document.getElementById('bid-input');
+    const btn = document.getElementById('btn-submit');
+    const submit = () => {
+      const v = parseInt(inp.value, 10);
+      if (!Number.isFinite(v) || v < MIN_BID || v > MAX_BID) {
+        alert('Please enter an integer between 1 and 100.'); return;
+      }
+      if (studentState.locallySubmitted[cr]) return;
+      studentState.locallySubmitted[cr] = true;
+      btn.disabled = true;
+      db.ref(`${ROOT}/submissions/g${group}/r${cr}/${role}`).set({
+        bid: v, auto: false, timestamp: firebase.database.ServerValue.TIMESTAMP
+      }).catch(err => {
+        studentState.locallySubmitted[cr] = false;
+        btn.disabled = false;
+        alert('Submission failed: ' + err.message);
+      });
+    };
+    btn.onclick = submit;
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  }
+}
+
+/* Build student's per-round history rows, including best-response feedback. */
+function studentHistory(throughRound) {
+  const role = studentState.role;
+  const oppRole = role === 'A' ? 'B' : 'A';
+  const group = studentState.group;
+  const gk = `g${group}`;
+  const rows = [];
+  let total = 0;
+  for (let r = 1; r <= throughRound; r++) {
+    const sub = SUBMISSIONS?.[gk]?.[`r${r}`];
+    if (!sub || sub.A == null || sub.B == null) {
+      rows.push({ round: r, pending: true });
+      continue;
+    }
+    const bidA = sub.A.bid, bidB = sub.B.bid;
+    const out = resolveRound(group, r, bidA, bidB);
+    const myBid  = role === 'A' ? bidA : bidB;
+    const oppBid = role === 'A' ? bidB : bidA;
+    const myAuto = !!sub[role].auto;
+    const mySlot  = role === 'A' ? out.slotA : out.slotB;
+    const myPay   = role === 'A' ? out.payoffA : out.payoffB;
+    total += myPay;
+    const br = bestResponse(role, oppBid);
+    rows.push({
+      round: r, myBid, oppBid, mySlot, myPay, myAuto,
+      brBid: br.bid, brPay: br.payoff
+    });
+  }
+  return { historyRows: rows, totalPayoff: total };
+}
+
+function historyTableHTML(rows, compact) {
+  const slotLabel = s => s === 'top' ? 'Top (200)' : s === 'second' ? 'Second (100)' : 'None (0)';
+  const body = rows.map(r => {
+    if (r.pending) return `<tr><td>${r.round}</td><td colspan="6" class="muted">(pending)</td></tr>`;
+    const better = r.brPay > r.myPay + 0.0001;
+    const brCell = better
+      ? `<td class="br-cell">${r.brBid} → ${fmtNum(r.brPay)}</td>`
+      : `<td class="muted">${r.brBid} → ${fmtNum(r.brPay)} (same or worse)</td>`;
+    return `<tr>
+      <td>${r.round}</td>
+      <td class="mine">${r.myBid}${r.myAuto ? ' <span class="tag tag-muted" style="font-size:10px">auto</span>' : ''}</td>
+      <td>${r.oppBid}</td>
+      <td>${slotLabel(r.mySlot)}</td>
+      <td class="${r.myPay > 0 ? 'good' : r.myPay < 0 ? 'bad' : ''}">${fmtNum(r.myPay)}</td>
+      ${brCell}
+    </tr>`;
+  }).join('');
+  return `
+    <table class="data">
+      <thead><tr>
+        <th>Round</th><th>Your bid</th><th>Opp bid</th><th>Your slot</th><th>Your payoff</th><th>Best response</th>
+      </tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  `;
+}
+
+function ruleSummaryHTML(compact=false) {
+  return `
+    <div class="info-box">
+      <strong>Rules.</strong> You and your opponent each bid an integer from 1 to 100 for two ad slots. A third passive bidder C bids ${C_BID}. Highest bid wins the top slot (${CLICKS_TOP} clicks). Second-highest wins the second slot (${CLICKS_SECOND} clicks). Third gets nothing. If you win a slot, your payoff for that round is <em>clicks × (your value − your bid)</em>. Your value per click is <strong>${valueOf(studentState.role)}</strong>. Ties are broken at random.
+      ${compact ? '' : '<br><br>The experiment has multiple rounds. Each round lasts a fixed time; results appear at the start of the next round.'}
+    </div>
+  `;
+}
+
+function fmtNum(n) {
+  if (!Number.isFinite(n)) return '—';
+  const s = Math.round(n).toLocaleString('en-US');
+  return n > 0 ? '+' + s : s;
+}
+
+/* ===========================================================================
+   INSTRUCTOR MODE
+   =========================================================================== */
+
+let instructorState = {
+  pendingConfig: { num_rounds: DEFAULT_NUM_ROUNDS, round_seconds: DEFAULT_ROUND_SECS }
+};
+
+function renderInstructor() {
+  startTick();
+  const now = Date.now();
+  const expStart   = META && META.experiment_start;
+  const numRounds  = (META && META.num_rounds) || instructorState.pendingConfig.num_rounds;
+  const roundSecs  = (META && META.round_seconds) || instructorState.pendingConfig.round_seconds;
+  const cr = expStart ? currentRound(expStart, roundSecs, numRounds, now) : 0;
+  const finished = expStart && cr > numRounds;
+
+  /* --- Auto-submit robot bids and human timeouts ------------------------- */
+  if (expStart && !finished) maintainAutoSubmissions(expStart, numRounds, roundSecs, now, cr);
+
+  const configCard = `
+    <div class="card">
+      <h2>Configuration</h2>
+      <div class="row">
+        <div>
+          <label>Number of rounds</label>
+          <input type="number" id="cfg-nr" min="1" max="50" value="${numRounds}" ${expStart ? 'disabled' : ''}>
+        </div>
+        <div>
+          <label>Seconds per round</label>
+          <input type="number" id="cfg-rs" min="5" max="300" value="${roundSecs}" ${expStart ? 'disabled' : ''}>
+        </div>
+      </div>
+      <div class="mt2">
+        ${expStart
+          ? `<button class="primary" disabled>Experiment running…</button>
+             <button class="danger" id="btn-wipe" style="margin-left:8px">⚠ Wipe all data</button>`
+          : `<button class="primary" id="btn-start">Start experiment</button>
+             <button class="danger" id="btn-wipe" style="margin-left:8px">⚠ Wipe all data</button>`}
+      </div>
+    </div>`;
+
+  const statusCard = expStart ? (() => {
+    const endOfCurrent = roundEndMs(expStart, roundSecs, cr);
+    const remainingMs = Math.max(0, endOfCurrent - now);
+    const secs = Math.ceil(remainingMs / 1000);
+    const pill = finished ? '<span class="status-pill done">Finished</span>' : `<span class="status-pill active">Round ${cr} of ${numRounds} · ${secs}s left</span>`;
+    return `
+      <div class="card">
+        <h2>Status</h2>
+        <p>${pill}</p>
+        <p class="small">Started at ${new Date(expStart).toLocaleTimeString()} · num_rounds=${numRounds} · round_seconds=${roundSecs}</p>
+        <a href="?results" target="_blank">Open results dashboard ↗</a>
+      </div>
+    `;
+  })() : '';
+
+  const groupsCard = `
+    <div class="card">
+      <h2>Groups</h2>
+      <div class="small mb">Robot badges mark groups 1–10, where one side is played by a robot. Submitted bids update live.</div>
+      <div class="group-grid">${groupTilesHTML(expStart, cr, numRounds, roundSecs, now)}</div>
+    </div>`;
+
+  render(configCard + statusCard + groupsCard, true);
+
+  const btnStart = document.getElementById('btn-start');
+  if (btnStart) btnStart.onclick = () => {
+    const nr = parseInt(document.getElementById('cfg-nr').value, 10);
+    const rs = parseInt(document.getElementById('cfg-rs').value, 10);
+    if (!(nr >= 1) || !(rs >= 5)) { alert('Invalid configuration.'); return; }
+    const startAt = Date.now() + 3000; // 3-second grace
+    db.ref(`${ROOT}/meta`).set({
+      experiment_start: startAt, num_rounds: nr, round_seconds: rs
+    });
+  };
+  const btnWipe = document.getElementById('btn-wipe');
+  if (btnWipe) btnWipe.onclick = () => {
+    if (!confirm('Wipe ALL auction data (meta + submissions)?')) return;
+    // Clear meta first, then submissions, to avoid auto-submit races.
+    db.ref(`${ROOT}/meta`).remove().then(() => {
+      return db.ref(`${ROOT}/submissions`).remove();
+    }).then(() => {
+      instructorState.pendingConfig = { num_rounds: DEFAULT_NUM_ROUNDS, round_seconds: DEFAULT_ROUND_SECS };
+      onStateChange();
+    });
+  };
+}
+
+function groupTilesHTML(expStart, cr, numRounds, roundSecs, now) {
+  const tiles = [];
+  for (let g = 1; g <= NUM_GROUPS; g++) {
+    const gk = `g${g}`;
+    const robotA = isRobot(g, 'A'), robotB = isRobot(g, 'B');
+    const aTag = robotA ? '<span class="tag tag-robot">robot A</span>' : '<span class="tag tag-a">human A</span>';
+    const bTag = robotB ? '<span class="tag tag-robot">robot B</span>' : '<span class="tag tag-b">human B</span>';
+    let line2 = '';
+    if (!expStart) {
+      line2 = '<span class="muted">Not started</span>';
+    } else if (cr >= 1 && cr <= numRounds) {
+      const sub = SUBMISSIONS?.[gk]?.[`r${cr}`] || {};
+      const aDone = sub.A ? `A:${sub.A.bid}${sub.A.auto?'·a':''}` : 'A:—';
+      const bDone = sub.B ? `B:${sub.B.bid}${sub.B.auto?'·a':''}` : 'B:—';
+      line2 = `<span class="small">Round ${cr}: ${aDone} · ${bDone}</span>`;
+    } else if (cr > numRounds) {
+      line2 = '<span class="muted">Finished</span>';
+    }
+    tiles.push(`
+      <div class="group-tile">
+        <h4>Group ${g} <span>${aTag} ${bTag}</span></h4>
+        <div>${line2}</div>
+      </div>
+    `);
+  }
+  return tiles.join('');
+}
+
+/* Core maintainer: writes robot bids for the current round, and writes timeout
+   bids for all completed rounds with missing human submissions.               */
+let autoWriteBusy = false;
+function maintainAutoSubmissions(expStart, numRounds, roundSecs, now, cr) {
+  if (autoWriteBusy) return;
+  autoWriteBusy = true;
+  try {
+    const writes = [];
+
+    // (1) For every group × role: fill missing submissions for completed rounds
+    //     (timeouts) and for the current round (robot pre-fills).
+    for (let g = 1; g <= NUM_GROUPS; g++) {
+      const gk = `g${g}`;
+      for (let r = 1; r < cr && r <= numRounds; r++) {
+        ['A', 'B'].forEach(role => {
+          const existing = SUBMISSIONS?.[gk]?.[`r${r}`]?.[role];
+          if (existing) return;
+          // Need to write timeout / robot bid for this slot.
+          const bid = computeAutoBid(g, role, r);
+          writes.push({
+            path: `${ROOT}/submissions/${gk}/r${r}/${role}`,
+            value: { bid, auto: true, timestamp: firebase.database.ServerValue.TIMESTAMP }
+          });
+        });
+      }
+      // (2) Robot bid for the CURRENT round (cr), submitted immediately at round start.
+      if (cr >= 1 && cr <= numRounds) {
+        ['A', 'B'].forEach(role => {
+          if (!isRobot(g, role)) return;
+          const existing = SUBMISSIONS?.[gk]?.[`r${cr}`]?.[role];
+          if (existing) return;
+          const bid = computeAutoBid(g, role, cr);
+          writes.push({
+            path: `${ROOT}/submissions/${gk}/r${cr}/${role}`,
+            value: { bid, auto: true, timestamp: firebase.database.ServerValue.TIMESTAMP }
+          });
+        });
+      }
+    }
+
+    if (writes.length === 0) { autoWriteBusy = false; return; }
+    Promise.all(writes.map(w => db.ref(w.path).set(w.value)))
+      .finally(() => { autoWriteBusy = false; });
+  } catch (e) {
+    autoWriteBusy = false;
+    console.error('maintainAutoSubmissions error', e);
+  }
+}
+
+/* Compute the auto-bid (robot or timeout) for (group, role, roundIdx).
+   - Round 1: always ROUND_1_DEFAULT (21).
+   - Round N>=2: best response to opponent's round N-1 bid.                   */
+function computeAutoBid(group, role, roundIdx) {
+  if (roundIdx <= 1) return ROUND_1_DEFAULT;
+  const oppRole = role === 'A' ? 'B' : 'A';
+  const gk = `g${group}`;
+  const oppSub = SUBMISSIONS?.[gk]?.[`r${roundIdx - 1}`]?.[oppRole];
+  if (!oppSub) return ROUND_1_DEFAULT; // safety fallback
+  return bestResponse(role, oppSub.bid).bid;
+}
+
+/* ===========================================================================
+   RESULTS MODE
+   =========================================================================== */
+
+function renderResults() {
+  startTick();
+  const expStart  = META && META.experiment_start;
+  const numRounds = (META && META.num_rounds) || DEFAULT_NUM_ROUNDS;
+  const roundSecs = (META && META.round_seconds) || DEFAULT_ROUND_SECS;
+  const now = Date.now();
+  const cr = expStart ? currentRound(expStart, roundSecs, numRounds, now) : 0;
+
+  /* Redundant backup: also maintain robot + timeout submissions from here, in
+     case the instructor has only the results page open on the classroom screen. */
+  if (expStart && cr <= numRounds) maintainAutoSubmissions(expStart, numRounds, roundSecs, now, cr);
+
+  const header = `
+    <div class="card">
+      <h1>Auction Experiment — Results</h1>
+      <div class="small">${
+        !expStart ? 'Not started.' :
+        (cr > numRounds ? `Finished (${numRounds} rounds).` : `Round ${cr} of ${numRounds} in progress.`)
+      } ${NUM_GROUPS} groups · Player A v=${VALUE_A} · Player B v=${VALUE_B} · C bids ${C_BID}.</div>
+    </div>`;
+
+  const grid = `<div class="chart-grid">${
+    Array.from({length: NUM_GROUPS}, (_, i) => chartCardHTML(i + 1, numRounds)).join('')
+  }</div>`;
+
+  render(header + grid, true);
+}
+
+/* Build one group's chart card (inline SVG line chart). */
+function chartCardHTML(group, numRounds) {
+  const gk = `g${group}`;
+  const bidsA = [], bidsB = [];
+  for (let r = 1; r <= numRounds; r++) {
+    const sub = SUBMISSIONS?.[gk]?.[`r${r}`];
+    bidsA.push(sub && sub.A ? sub.A.bid : null);
+    bidsB.push(sub && sub.B ? sub.B.bid : null);
+  }
+  const robotA = isRobot(group, 'A'), robotB = isRobot(group, 'B');
+  const aLabel = robotA ? 'A (robot)' : 'A';
+  const bLabel = robotB ? 'B (robot)' : 'B';
+  return `
+    <div class="chart-card">
+      <h4>Group ${group}
+        <span class="legend">
+          <span class="a">${aLabel}</span>
+          <span class="b">${bLabel}</span>
+        </span>
+      </h4>
+      ${svgLineChart(bidsA, bidsB, numRounds)}
+    </div>
+  `;
+}
+
+/* Tiny inline SVG line chart. X axis = rounds, Y axis = 0..100.              */
+function svgLineChart(seriesA, seriesB, numRounds) {
+  const W = 280, H = 150, PAD_L = 28, PAD_R = 8, PAD_T = 8, PAD_B = 20;
+  const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
+  const xOf = r => PAD_L + (innerW * (r - 1) / Math.max(1, numRounds - 1));
+  const yOf = v => PAD_T + innerH * (1 - v / 100);
+
+  const axis = `
+    <line x1="${PAD_L}" y1="${PAD_T}" x2="${PAD_L}" y2="${PAD_T + innerH}" stroke="#d1d5db" stroke-width="1"/>
+    <line x1="${PAD_L}" y1="${PAD_T + innerH}" x2="${PAD_L + innerW}" y2="${PAD_T + innerH}" stroke="#d1d5db" stroke-width="1"/>
+    <text x="4" y="${PAD_T + 4}" font-size="9" fill="#6b7280">100</text>
+    <text x="4" y="${PAD_T + innerH / 2 + 3}" font-size="9" fill="#6b7280">50</text>
+    <text x="4" y="${PAD_T + innerH + 3}" font-size="9" fill="#6b7280">0</text>
+    <text x="${PAD_L}" y="${H - 4}" font-size="9" fill="#6b7280">1</text>
+    <text x="${PAD_L + innerW - 10}" y="${H - 4}" font-size="9" fill="#6b7280">${numRounds}</text>
+    <line x1="${PAD_L}" y1="${yOf(C_BID)}" x2="${PAD_L + innerW}" y2="${yOf(C_BID)}" stroke="#d1d5db" stroke-width="1" stroke-dasharray="2,3"/>
+    <text x="${PAD_L + innerW - 28}" y="${yOf(C_BID) - 2}" font-size="9" fill="#9ca3af">C=${C_BID}</text>
+  `;
+
+  const linePath = (series, color) => {
+    let d = '';
+    let dotHtml = '';
+    let pen = false;
+    for (let i = 0; i < series.length; i++) {
+      const v = series[i];
+      if (v == null) { pen = false; continue; }
+      const x = xOf(i + 1), y = yOf(v);
+      d += (pen ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+      dotHtml += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" fill="${color}"/>`;
+      pen = true;
+    }
+    return `<path d="${d.trim()}" fill="none" stroke="${color}" stroke-width="1.8"/>${dotHtml}`;
+  };
+
+  return `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    ${axis}
+    ${linePath(seriesA, 'var(--a-color)')}
+    ${linePath(seriesB, 'var(--b-color)')}
+  </svg>`;
+}
+
+/* ===========================================================================
+   BOOTSTRAP
+   =========================================================================== */
+startTick();
+onStateChange();
+</script>
+</body>
+</html>
