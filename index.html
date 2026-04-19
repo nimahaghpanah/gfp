@@ -130,13 +130,13 @@
    config here. The auction uses its own subtree (/auction/...) so it won't
    collide with cascade data.                                                  */
 const firebaseConfig = {
-  apiKey: "REPLACE_ME",
-  authDomain: "cascade-experiment.firebaseapp.com",
-  databaseURL: "https://cascade-experiment-default-rtdb.firebaseio.com",
-  projectId: "cascade-experiment",
-  storageBucket: "cascade-experiment.appspot.com",
-  messagingSenderId: "REPLACE_ME",
-  appId: "REPLACE_ME"
+  apiKey:            "AIzaSyBpZcHGN5qwxCnEL0dgrArjZC3oiD3mtZI",
+  authDomain:        "cascade-experiment.firebaseapp.com",
+  databaseURL:       "https://cascade-experiment-default-rtdb.firebaseio.com",
+  projectId:         "cascade-experiment",
+  storageBucket:     "cascade-experiment.firebasestorage.app",
+  messagingSenderId: "299151610265",
+  appId:             "1:299151610265:web:11efaf597bcad76aa3c308"
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
@@ -286,10 +286,89 @@ function startTick() {
 }
 function onTick() { onStateChange(); }
 
+/* Re-render only when the "page identity" changes (current round, submitted
+   state, history, etc.). On pure time ticks we just update the countdown
+   text in-place so that <select>s and <input>s aren't wiped mid-interaction. */
+let lastRenderKey = null;
 function onStateChange() {
+  const key = computeRenderKey();
+  if (key === lastRenderKey) { updateTimersOnly(); return; }
+  lastRenderKey = key;
   if (mode === 'student')    renderStudent();
   else if (mode === 'instructor') renderInstructor();
   else if (mode === 'results')    renderResults();
+}
+
+function computeRenderKey() {
+  const expStart  = META && META.experiment_start;
+  const numRounds = (META && META.num_rounds) || DEFAULT_NUM_ROUNDS;
+  const roundSecs = (META && META.round_seconds) || DEFAULT_ROUND_SECS;
+  const now = Date.now();
+  const cr  = expStart ? currentRound(expStart, roundSecs, numRounds, now) : 0;
+
+  if (mode === 'student') {
+    if (!studentState.group || !studentState.role) return 'student:entry';
+    if (!expStart)         return 'student:waiting:no-start';
+    if (now < expStart)    return 'student:waiting:pre-start';
+    if (cr > numRounds)    return `student:done:${myGroupSig(numRounds)}`;
+    const gk = `g${studentState.group}`;
+    const mySub = SUBMISSIONS?.[gk]?.[`r${cr}`]?.[studentState.role];
+    // Only include my own group's history — so opponents in other groups
+    // submitting doesn't trigger a re-render that wipes my input.
+    return `student:round:${cr}:${mySub ? 'submitted' : 'input'}:${myGroupSig(cr - 1)}`;
+  }
+  if (mode === 'instructor') {
+    if (!expStart)      return `instructor:idle:${numRounds}:${roundSecs}`;
+    if (cr > numRounds) return `instructor:done:${submissionsSig()}`;
+    return `instructor:running:${cr}:${submissionsSig()}`;
+  }
+  if (mode === 'results') {
+    return `results:${expStart || 'idle'}:${cr}:${submissionsSig()}`;
+  }
+  return 'unknown';
+}
+
+function submissionsSig() {
+  try {
+    const s = JSON.stringify(SUBMISSIONS || {});
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return (h >>> 0).toString(36);
+  } catch (e) { return ''; }
+}
+
+function myGroupSig(throughRound) {
+  const group = studentState.group;
+  if (!group) return '';
+  const gk = `g${group}`;
+  const parts = [];
+  for (let r = 1; r <= throughRound; r++) {
+    const sub = SUBMISSIONS?.[gk]?.[`r${r}`];
+    parts.push(`${sub?.A?.bid ?? ''}.${sub?.B?.bid ?? ''}`);
+  }
+  return parts.join('|');
+}
+
+function updateTimersOnly() {
+  const expStart = META && META.experiment_start;
+  if (!expStart) return;
+  const numRounds = (META && META.num_rounds) || DEFAULT_NUM_ROUNDS;
+  const roundSecs = (META && META.round_seconds) || DEFAULT_ROUND_SECS;
+  const now = Date.now();
+  const cr = currentRound(expStart, roundSecs, numRounds, now);
+  if (cr < 1 || cr > numRounds) return;
+  const endMs = roundEndMs(expStart, roundSecs, cr);
+  const remainingMs = Math.max(0, endMs - now);
+  const remainingSecs = Math.ceil(remainingMs / 1000);
+  const timeClass = remainingSecs <= 5 ? 'danger' : (remainingSecs <= 10 ? 'warn' : '');
+
+  const studentTimer = document.querySelector('.round-header .r-time');
+  if (studentTimer) {
+    studentTimer.textContent = `${remainingSecs}s`;
+    studentTimer.className = `r-time ${timeClass}`;
+  }
+  const instructorTimer = document.getElementById('instructor-countdown');
+  if (instructorTimer) instructorTimer.textContent = `${remainingSecs}s left`;
 }
 
 /* ===========================================================================
@@ -452,10 +531,15 @@ function renderStudentRound(cr, expStart, numRounds, roundSecs, now) {
     </div>
   `;
 
+  // Preserve a partially-typed bid across re-renders, just in case.
+  const prevInputEl = document.getElementById('bid-input');
+  const prevInputValue = prevInputEl ? prevInputEl.value : '';
+
   render(header + decisionArea + history);
 
   if (!mySub) {
     const inp = document.getElementById('bid-input');
+    if (inp && prevInputValue) inp.value = prevInputValue;
     const btn = document.getElementById('btn-submit');
     const submit = () => {
       const v = parseInt(inp.value, 10);
@@ -597,7 +681,7 @@ function renderInstructor() {
     const endOfCurrent = roundEndMs(expStart, roundSecs, cr);
     const remainingMs = Math.max(0, endOfCurrent - now);
     const secs = Math.ceil(remainingMs / 1000);
-    const pill = finished ? '<span class="status-pill done">Finished</span>' : `<span class="status-pill active">Round ${cr} of ${numRounds} · ${secs}s left</span>`;
+    const pill = finished ? '<span class="status-pill done">Finished</span>' : `<span class="status-pill active">Round ${cr} of ${numRounds} · <span id="instructor-countdown">${secs}s left</span></span>`;
     return `
       <div class="card">
         <h2>Status</h2>
