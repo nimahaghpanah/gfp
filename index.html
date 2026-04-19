@@ -46,7 +46,6 @@
   .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
   .tag-a { background: var(--a-bg); color: var(--a-color); border: 1px solid var(--a-border); }
   .tag-b { background: var(--b-bg); color: var(--b-color); border: 1px solid var(--b-border); }
-  .tag-robot { background: #f3e8ff; color: var(--accent); border: 1px solid #d8b4fe; }
   .tag-muted { background: #f3f4f6; color: var(--muted); border: 1px solid var(--border); }
 
   /* Tables */
@@ -76,6 +75,18 @@
   .info-box { background: #f9fafb; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-size: 13px; line-height: 1.5; }
   .info-box strong { color: #111827; }
   .feedback-box { background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 12px 14px; font-size: 14px; line-height: 1.6; }
+  .feedback-banner {
+    background: #fef2f2;
+    border: 2px solid #fca5a5;
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    color: #b91c1c;
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.55;
+  }
+  .feedback-banner strong { color: #7f1d1d; font-weight: 700; }
 
   /* Instructor */
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -119,7 +130,7 @@
    Generalized first-price auction game for classroom use.
    Three URL modes:
      /              - student (default)
-     /?instructor   - instructor panel (start / wipe / submit robots & timeouts)
+     /?instructor   - instructor panel (start / wipe / submit auto-bids & timeouts)
      /?results      - live per-group line charts
 
    See payoff/best-response logic in the GAME LOGIC section.
@@ -156,8 +167,8 @@ const MAX_BID            = 100;
 
 const ROOT = 'auction'; // subtree under the Firebase DB
 
-/* Groups 1-10 have one robot. Odd groups: A is robot. Even groups: B is robot. */
-function isRobot(group, role) {
+/* Groups 1-10 have one auto-played side. Odd groups: A is auto. Even groups: B is auto. */
+function isAutoPlayer(group, role) {
   if (group < 1 || group > 10) return false;
   return (group % 2 === 1 && role === 'A') || (group % 2 === 0 && role === 'B');
 }
@@ -228,7 +239,7 @@ function expectedPayoff(b, oppBid, v) {
   return expectedClicks * (v - b);
 }
 
-/* Best response: smallest bid in [1,100] maximising expected payoff.          */
+/* "Best you could have done": smallest bid in [1,100] maximising expected payoff. */
 function bestResponse(role, oppBid) {
   const v = valueOf(role);
   let bestBid = MIN_BID, bestPay = expectedPayoff(MIN_BID, oppBid, v);
@@ -275,9 +286,18 @@ function render(html, wide=false) {
 let META = null;            // { experiment_start, num_rounds, round_seconds }
 let SUBMISSIONS = {};       // { groupKey: { roundKey: { A: {...}, B: {...} } } }
 
+/* Track whether the initial Firebase snapshot has been delivered. Until both
+   are true, we must NEVER write auto-submissions — SUBMISSIONS could still be
+   the empty initial object, and an auto-writer would clobber real bids.      */
+let firebaseReady = { meta: false, submissions: false };
+
 /* Subscribe once, keep in sync. */
-db.ref(`${ROOT}/meta`).on('value', s => { META = s.val() || {}; onStateChange(); });
-db.ref(`${ROOT}/submissions`).on('value', s => { SUBMISSIONS = s.val() || {}; onStateChange(); });
+db.ref(`${ROOT}/meta`).on('value', s => {
+  META = s.val() || {}; firebaseReady.meta = true; onStateChange();
+});
+db.ref(`${ROOT}/submissions`).on('value', s => {
+  SUBMISSIONS = s.val() || {}; firebaseReady.submissions = true; onStateChange();
+});
 
 let tickHandle = null;
 function startTick() {
@@ -475,6 +495,36 @@ function renderStudentDone(numRounds) {
   `);
 }
 
+function lastRoundFeedbackHTML(prevRound) {
+  if (prevRound < 1) return '';
+  const role = studentState.role;
+  const group = studentState.group;
+  const gk = `g${group}`;
+  const sub = SUBMISSIONS?.[gk]?.[`r${prevRound}`];
+  if (!sub || sub.A == null || sub.B == null) return '';
+  const bidA = sub.A.bid, bidB = sub.B.bid;
+  const out = resolveRound(group, prevRound, bidA, bidB);
+  const myBid  = role === 'A' ? bidA : bidB;
+  const oppBid = role === 'A' ? bidB : bidA;
+  const mySlot = role === 'A' ? out.slotA : out.slotB;
+  const myPay  = role === 'A' ? out.payoffA : out.payoffB;
+  const br = bestResponse(role, oppBid);
+  const slotLabel = mySlot === 'top'
+    ? 'the <strong>top</strong>'
+    : mySlot === 'second'
+      ? 'the <strong>second</strong>'
+      : '<strong>no</strong>';
+  const better = br.payoff > myPay + 0.0001;
+  const tail = better
+    ? `You could have done better by submitting <strong>${br.bid}</strong>, which would have given you payoff <strong>${fmtNum(br.payoff)}</strong>.`
+    : `That was the best you could have done.`;
+  return `
+    <div class="feedback-banner">
+      Last round your bid was <strong>${myBid}</strong> and your opponent's was <strong>${oppBid}</strong>. You won ${slotLabel} slot. Your payoff was <strong>${fmtNum(myPay)}</strong>. ${tail}
+    </div>
+  `;
+}
+
 function renderStudentRound(cr, expStart, numRounds, roundSecs, now) {
   const role = studentState.role;
   const group = studentState.group;
@@ -485,6 +535,8 @@ function renderStudentRound(cr, expStart, numRounds, roundSecs, now) {
 
   const { historyRows, totalPayoff } = studentHistory(cr - 1);
   const mySub = (SUBMISSIONS?.[`g${group}`]?.[`r${cr}`]?.[role]) || null;
+
+  const feedbackBanner = lastRoundFeedbackHTML(cr - 1);
 
   const header = `
     <div class="round-header">
@@ -514,7 +566,7 @@ function renderStudentRound(cr, expStart, numRounds, roundSecs, now) {
           <button class="primary submit-btn" id="btn-submit">Submit bid</button>
         </div>
       </div>
-      <p class="small mt">If you don't submit, your bid will be the best response to your opponent's previous-round bid (21 in round 1).</p>
+      <p class="small mt">If you don't submit, a default bid will be filled in for you (21 in round 1; otherwise based on your opponent's previous-round bid).</p>
     </div>
   `;
 
@@ -535,7 +587,7 @@ function renderStudentRound(cr, expStart, numRounds, roundSecs, now) {
   const prevInputEl = document.getElementById('bid-input');
   const prevInputValue = prevInputEl ? prevInputEl.value : '';
 
-  render(header + decisionArea + history);
+  render(feedbackBanner + header + decisionArea + history);
 
   if (!mySub) {
     const inp = document.getElementById('bid-input');
@@ -613,7 +665,7 @@ function historyTableHTML(rows, compact) {
   return `
     <table class="data">
       <thead><tr>
-        <th>Round</th><th>Your bid</th><th>Opp bid</th><th>Your slot</th><th>Your payoff</th><th>Best response</th>
+        <th>Round</th><th>Your bid</th><th>Opp bid</th><th>Your slot</th><th>Your payoff</th><th>Best you could have done</th>
       </tr></thead>
       <tbody>${body}</tbody>
     </table>
@@ -652,7 +704,7 @@ function renderInstructor() {
   const cr = expStart ? currentRound(expStart, roundSecs, numRounds, now) : 0;
   const finished = expStart && cr > numRounds;
 
-  /* --- Auto-submit robot bids and human timeouts ------------------------- */
+  /* --- Auto-submit auto-player bids and human timeouts -------------------- */
   if (expStart && !finished) maintainAutoSubmissions(expStart, numRounds, roundSecs, now, cr);
 
   const configCard = `
@@ -695,7 +747,7 @@ function renderInstructor() {
   const groupsCard = `
     <div class="card">
       <h2>Groups</h2>
-      <div class="small mb">Robot badges mark groups 1–10, where one side is played by a robot. Submitted bids update live.</div>
+      <div class="small mb">Submitted bids update live. Groups 1–10 have one side auto-played (alternating).</div>
       <div class="group-grid">${groupTilesHTML(expStart, cr, numRounds, roundSecs, now)}</div>
     </div>`;
 
@@ -728,9 +780,8 @@ function groupTilesHTML(expStart, cr, numRounds, roundSecs, now) {
   const tiles = [];
   for (let g = 1; g <= NUM_GROUPS; g++) {
     const gk = `g${g}`;
-    const robotA = isRobot(g, 'A'), robotB = isRobot(g, 'B');
-    const aTag = robotA ? '<span class="tag tag-robot">robot A</span>' : '<span class="tag tag-a">human A</span>';
-    const bTag = robotB ? '<span class="tag tag-robot">robot B</span>' : '<span class="tag tag-b">human B</span>';
+    const aTag = '<span class="tag tag-a">A</span>';
+    const bTag = '<span class="tag tag-b">B</span>';
     let line2 = '';
     if (!expStart) {
       line2 = '<span class="muted">Not started</span>';
@@ -752,24 +803,27 @@ function groupTilesHTML(expStart, cr, numRounds, roundSecs, now) {
   return tiles.join('');
 }
 
-/* Core maintainer: writes robot bids for the current round, and writes timeout
+/* Core maintainer: writes auto-player bids for the current round, and writes timeout
    bids for all completed rounds with missing human submissions.               */
 let autoWriteBusy = false;
 function maintainAutoSubmissions(expStart, numRounds, roundSecs, now, cr) {
+  // Safety gate: never auto-write before the initial snapshot has arrived,
+  // otherwise we'd overwrite real bids with auto-21s.
+  if (!firebaseReady.meta || !firebaseReady.submissions) return;
   if (autoWriteBusy) return;
   autoWriteBusy = true;
   try {
     const writes = [];
 
     // (1) For every group × role: fill missing submissions for completed rounds
-    //     (timeouts) and for the current round (robot pre-fills).
+    //     (timeouts) and for the current round (auto-player pre-fills).
     for (let g = 1; g <= NUM_GROUPS; g++) {
       const gk = `g${g}`;
       for (let r = 1; r < cr && r <= numRounds; r++) {
         ['A', 'B'].forEach(role => {
           const existing = SUBMISSIONS?.[gk]?.[`r${r}`]?.[role];
           if (existing) return;
-          // Need to write timeout / robot bid for this slot.
+          // Need to write timeout / auto-player bid for this slot.
           const bid = computeAutoBid(g, role, r);
           writes.push({
             path: `${ROOT}/submissions/${gk}/r${r}/${role}`,
@@ -777,10 +831,10 @@ function maintainAutoSubmissions(expStart, numRounds, roundSecs, now, cr) {
           });
         });
       }
-      // (2) Robot bid for the CURRENT round (cr), submitted immediately at round start.
+      // (2) Auto-player bid for the CURRENT round (cr), submitted immediately at round start.
       if (cr >= 1 && cr <= numRounds) {
         ['A', 'B'].forEach(role => {
-          if (!isRobot(g, role)) return;
+          if (!isAutoPlayer(g, role)) return;
           const existing = SUBMISSIONS?.[gk]?.[`r${cr}`]?.[role];
           if (existing) return;
           const bid = computeAutoBid(g, role, cr);
@@ -793,17 +847,23 @@ function maintainAutoSubmissions(expStart, numRounds, roundSecs, now, cr) {
     }
 
     if (writes.length === 0) { autoWriteBusy = false; return; }
-    Promise.all(writes.map(w => db.ref(w.path).set(w.value)))
-      .finally(() => { autoWriteBusy = false; });
+    // Use transactions so we ATOMICALLY only write when the slot is empty.
+    // This prevents any race where stale local state would clobber a real bid.
+    Promise.all(writes.map(w =>
+      db.ref(w.path).transaction(current => {
+        if (current !== null && current !== undefined) return; // abort: occupied
+        return w.value;
+      })
+    )).finally(() => { autoWriteBusy = false; });
   } catch (e) {
     autoWriteBusy = false;
     console.error('maintainAutoSubmissions error', e);
   }
 }
 
-/* Compute the auto-bid (robot or timeout) for (group, role, roundIdx).
+/* Compute the auto-bid (auto-player or timeout) for (group, role, roundIdx).
    - Round 1: always ROUND_1_DEFAULT (21).
-   - Round N>=2: best response to opponent's round N-1 bid.                   */
+   - Round N>=2: best bid against the opponent's round N-1 bid.               */
 function computeAutoBid(group, role, roundIdx) {
   if (roundIdx <= 1) return ROUND_1_DEFAULT;
   const oppRole = role === 'A' ? 'B' : 'A';
@@ -825,7 +885,7 @@ function renderResults() {
   const now = Date.now();
   const cr = expStart ? currentRound(expStart, roundSecs, numRounds, now) : 0;
 
-  /* Redundant backup: also maintain robot + timeout submissions from here, in
+  /* Redundant backup: also maintain auto-player + timeout submissions from here, in
      case the instructor has only the results page open on the classroom screen. */
   if (expStart && cr <= numRounds) maintainAutoSubmissions(expStart, numRounds, roundSecs, now, cr);
 
@@ -854,9 +914,8 @@ function chartCardHTML(group, numRounds) {
     bidsA.push(sub && sub.A ? sub.A.bid : null);
     bidsB.push(sub && sub.B ? sub.B.bid : null);
   }
-  const robotA = isRobot(group, 'A'), robotB = isRobot(group, 'B');
-  const aLabel = robotA ? 'A (robot)' : 'A';
-  const bLabel = robotB ? 'B (robot)' : 'B';
+  const aLabel = 'A';
+  const bLabel = 'B';
   return `
     <div class="chart-card">
       <h4>Group ${group}
