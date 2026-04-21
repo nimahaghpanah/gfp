@@ -57,6 +57,10 @@
   table.data td.good { color: var(--good); }
   table.data td.bad  { color: var(--bad); }
   table.data .br-cell { color: var(--accent); }
+  table.data th.col-mine-a { background: var(--a-bg); color: var(--a-color); border-bottom: 2px solid var(--a-color); }
+  table.data th.col-mine-b { background: var(--b-bg); color: var(--b-color); border-bottom: 2px solid var(--b-color); }
+  table.data td.mine-a-cell { background: var(--a-bg); color: var(--a-color); font-weight: 700; }
+  table.data td.mine-b-cell { background: var(--b-bg); color: var(--b-color); font-weight: 700; }
 
   /* Countdown / round header */
   .round-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 18px; background: #1f2937; color: white; border-radius: 12px; margin-bottom: 16px; }
@@ -156,19 +160,21 @@ const db = firebase.database();
 const NUM_GROUPS         = 30;
 const DEFAULT_NUM_ROUNDS = 20;
 const DEFAULT_ROUND_SECS = 30;
-const VALUE_A            = 80;
-const VALUE_B            = 60;
+const VALUE_A            = 60;
+const VALUE_B            = 40;
 const C_BID              = 20;
-const CLICKS_TOP         = 200;
-const CLICKS_SECOND      = 100;
+const CLICKS_TOP         = 400;
+const CLICKS_SECOND      = 300;
 const ROUND_1_DEFAULT    = 21;
 const MIN_BID            = 1;
 const MAX_BID            = 100;
 
 const ROOT = 'auction'; // subtree under the Firebase DB
 
-/* Groups 1-10 have one auto-played side. Odd groups: A is auto. Even groups: B is auto. */
+/* Groups 1-10 have one auto-played side (odd: A, even: B), EXCEPT groups
+   2 and 5 where BOTH sides are auto-played. Groups 11-30 are fully human. */
 function isAutoPlayer(group, role) {
+  if (group === 2 || group === 5) return true;
   if (group < 1 || group > 10) return false;
   return (group % 2 === 1 && role === 'A') || (group % 2 === 0 && role === 'B');
 }
@@ -629,6 +635,7 @@ function studentHistory(throughRound) {
       continue;
     }
     const bidA = sub.A.bid, bidB = sub.B.bid;
+    const autoA = !!sub.A.auto, autoB = !!sub.B.auto;
     const out = resolveRound(group, r, bidA, bidB);
     const myBid  = role === 'A' ? bidA : bidB;
     const oppBid = role === 'A' ? bidB : bidA;
@@ -638,7 +645,8 @@ function studentHistory(throughRound) {
     total += myPay;
     const br = bestResponse(role, oppBid);
     rows.push({
-      round: r, myBid, oppBid, mySlot, myPay, myAuto,
+      round: r, bidA, bidB, autoA, autoB,
+      myBid, oppBid, mySlot, myPay, myAuto,
       brBid: br.bid, brPay: br.payoff
     });
   }
@@ -646,7 +654,16 @@ function studentHistory(throughRound) {
 }
 
 function historyTableHTML(rows, compact) {
-  const slotLabel = s => s === 'top' ? 'Top (200)' : s === 'second' ? 'Second (100)' : 'None (0)';
+  const role = studentState.role;
+  const slotLabel = s => s === 'top' ? `Top (${CLICKS_TOP})` : s === 'second' ? `Second (${CLICKS_SECOND})` : 'None (0)';
+  const mineA = role === 'A', mineB = role === 'B';
+  const aHeader = mineA ? "A's bid <span style=\"font-weight:400\">(you)</span>" : "A's bid";
+  const bHeader = mineB ? "B's bid <span style=\"font-weight:400\">(you)</span>" : "B's bid";
+  const aHeadClass = mineA ? 'col-mine-a' : '';
+  const bHeadClass = mineB ? 'col-mine-b' : '';
+  const aCellCls   = mineA ? 'mine-a-cell' : '';
+  const bCellCls   = mineB ? 'mine-b-cell' : '';
+  const autoTag = '<span class="tag tag-muted" style="font-size:10px">auto</span>';
   const body = rows.map(r => {
     if (r.pending) return `<tr><td>${r.round}</td><td colspan="6" class="muted">(pending)</td></tr>`;
     const better = r.brPay > r.myPay + 0.0001;
@@ -655,8 +672,9 @@ function historyTableHTML(rows, compact) {
       : `<td class="muted">${r.brBid} → ${fmtNum(r.brPay)} (same or worse)</td>`;
     return `<tr>
       <td>${r.round}</td>
-      <td class="mine">${r.myBid}${r.myAuto ? ' <span class="tag tag-muted" style="font-size:10px">auto</span>' : ''}</td>
-      <td>${r.oppBid}</td>
+      <td class="${aCellCls}">${r.bidA}${r.autoA ? ' ' + autoTag : ''}</td>
+      <td class="${bCellCls}">${r.bidB}${r.autoB ? ' ' + autoTag : ''}</td>
+      <td class="muted">${C_BID}</td>
       <td>${slotLabel(r.mySlot)}</td>
       <td class="${r.myPay > 0 ? 'good' : r.myPay < 0 ? 'bad' : ''}">${fmtNum(r.myPay)}</td>
       ${brCell}
@@ -665,7 +683,13 @@ function historyTableHTML(rows, compact) {
   return `
     <table class="data">
       <thead><tr>
-        <th>Round</th><th>Your bid</th><th>Opp bid</th><th>Your slot</th><th>Your payoff</th><th>Best you could have done</th>
+        <th>Round</th>
+        <th class="${aHeadClass}">${aHeader}</th>
+        <th class="${bHeadClass}">${bHeader}</th>
+        <th>C's bid</th>
+        <th>Your slot</th>
+        <th>Your payoff</th>
+        <th>Best you could have done</th>
       </tr></thead>
       <tbody>${body}</tbody>
     </table>
@@ -705,7 +729,10 @@ function renderInstructor() {
   const finished = expStart && cr > numRounds;
 
   /* --- Auto-submit auto-player bids and human timeouts -------------------- */
-  if (expStart && !finished) maintainAutoSubmissions(expStart, numRounds, roundSecs, now, cr);
+  // Call even when finished: maxR is capped at numRounds inside, and this tick
+  // is what fills any remaining empty slots in the LAST round (e.g., round 20
+  // humans who didn't submit). Without this, round 20 stays "(pending)" forever.
+  if (expStart) maintainAutoSubmissions(expStart, numRounds, roundSecs, now, cr);
 
   const configCard = `
     <div class="card">
@@ -747,7 +774,7 @@ function renderInstructor() {
   const groupsCard = `
     <div class="card">
       <h2>Groups</h2>
-      <div class="small mb">Submitted bids update live. Groups 1–10 have one side auto-played (alternating).</div>
+      <div class="small mb">Submitted bids update live. Groups 1–10 have at least one side auto-played (alternating); groups 2 and 5 have both sides auto-played.</div>
       <div class="group-grid">${groupTilesHTML(expStart, cr, numRounds, roundSecs, now)}</div>
     </div>`;
 
@@ -804,7 +831,13 @@ function groupTilesHTML(expStart, cr, numRounds, roundSecs, now) {
 }
 
 /* Core maintainer: writes auto-player bids for the current round, and writes timeout
-   bids for all completed rounds with missing human submissions.               */
+   bids for all completed rounds with missing human submissions.
+
+   IMPORTANT: rounds are processed IN ORDER per group, and a local `view` object
+   caches both real SUBMISSIONS and just-planned writes. This way, round N's
+   auto-bid can read round N-1's imputed bid even if it isn't yet in Firebase —
+   otherwise every batch-filled round would fall back to the round-1 default,
+   and lines would stay flat at 21 instead of climbing.                       */
 let autoWriteBusy = false;
 function maintainAutoSubmissions(expStart, numRounds, roundSecs, now, cr) {
   // Safety gate: never auto-write before the initial snapshot has arrived,
@@ -814,34 +847,31 @@ function maintainAutoSubmissions(expStart, numRounds, roundSecs, now, cr) {
   autoWriteBusy = true;
   try {
     const writes = [];
+    // Combined view: real SUBMISSIONS plus the writes we're about to queue.
+    // Starts as a shallow copy of SUBMISSIONS and is extended as we decide
+    // to fill empty slots. Used only for computing auto-bids in this batch.
+    const view = {};
 
-    // (1) For every group × role: fill missing submissions for completed rounds
-    //     (timeouts) and for the current round (auto-player pre-fills).
     for (let g = 1; g <= NUM_GROUPS; g++) {
       const gk = `g${g}`;
-      for (let r = 1; r < cr && r <= numRounds; r++) {
+      view[gk] = {};
+      const maxR = Math.min(cr, numRounds);
+      for (let r = 1; r <= maxR; r++) {
+        const rk = `r${r}`;
+        view[gk][rk] = Object.assign({}, SUBMISSIONS?.[gk]?.[rk] || {});
         ['A', 'B'].forEach(role => {
-          const existing = SUBMISSIONS?.[gk]?.[`r${r}`]?.[role];
-          if (existing) return;
-          // Need to write timeout / auto-player bid for this slot.
-          const bid = computeAutoBid(g, role, r);
-          writes.push({
-            path: `${ROOT}/submissions/${gk}/r${r}/${role}`,
-            value: { bid, auto: true, timestamp: firebase.database.ServerValue.TIMESTAMP }
-          });
-        });
-      }
-      // (2) Auto-player bid for the CURRENT round (cr), submitted immediately at round start.
-      if (cr >= 1 && cr <= numRounds) {
-        ['A', 'B'].forEach(role => {
-          if (!isAutoPlayer(g, role)) return;
-          const existing = SUBMISSIONS?.[gk]?.[`r${cr}`]?.[role];
-          if (existing) return;
-          const bid = computeAutoBid(g, role, cr);
-          writes.push({
-            path: `${ROOT}/submissions/${gk}/r${cr}/${role}`,
-            value: { bid, auto: true, timestamp: firebase.database.ServerValue.TIMESTAMP }
-          });
+          if (view[gk][rk][role]) return; // real bid already present
+          // Decide whether to fill:
+          //   * any completed round (r < cr) → yes (timeout fill)
+          //   * current round (r == cr) → only auto-player slots
+          const isCurrent = (r === cr);
+          if (isCurrent && !isAutoPlayer(g, role)) return;
+
+          const bid = computeAutoBidFromView(g, role, r, view);
+          const value = { bid, auto: true, timestamp: firebase.database.ServerValue.TIMESTAMP };
+          // Seed the view so later rounds can best-respond to this imputed bid.
+          view[gk][rk][role] = { bid, auto: true };
+          writes.push({ path: `${ROOT}/submissions/${gk}/${rk}/${role}`, value });
         });
       }
     }
@@ -861,14 +891,16 @@ function maintainAutoSubmissions(expStart, numRounds, roundSecs, now, cr) {
   }
 }
 
-/* Compute the auto-bid (auto-player or timeout) for (group, role, roundIdx).
+/* Compute the auto-bid (auto-player or timeout) for (group, role, roundIdx),
+   reading from the supplied `view` (which may include planned writes).
    - Round 1: always ROUND_1_DEFAULT (21).
    - Round N>=2: best bid against the opponent's round N-1 bid.               */
-function computeAutoBid(group, role, roundIdx) {
+function computeAutoBidFromView(group, role, roundIdx, view) {
   if (roundIdx <= 1) return ROUND_1_DEFAULT;
   const oppRole = role === 'A' ? 'B' : 'A';
   const gk = `g${group}`;
-  const oppSub = SUBMISSIONS?.[gk]?.[`r${roundIdx - 1}`]?.[oppRole];
+  const oppSub = view?.[gk]?.[`r${roundIdx - 1}`]?.[oppRole]
+              || SUBMISSIONS?.[gk]?.[`r${roundIdx - 1}`]?.[oppRole];
   if (!oppSub) return ROUND_1_DEFAULT; // safety fallback
   return bestResponse(role, oppSub.bid).bid;
 }
@@ -886,8 +918,9 @@ function renderResults() {
   const cr = expStart ? currentRound(expStart, roundSecs, numRounds, now) : 0;
 
   /* Redundant backup: also maintain auto-player + timeout submissions from here, in
-     case the instructor has only the results page open on the classroom screen. */
-  if (expStart && cr <= numRounds) maintainAutoSubmissions(expStart, numRounds, roundSecs, now, cr);
+     case the instructor has only the results page open on the classroom screen.
+     Runs even after the experiment ends so the final round's missing slots get filled. */
+  if (expStart) maintainAutoSubmissions(expStart, numRounds, roundSecs, now, cr);
 
   const header = `
     <div class="card">
