@@ -512,6 +512,7 @@ function lastRoundFeedbackHTML(prevRound) {
   const out = resolveRound(group, prevRound, bidA, bidB);
   const myBid  = role === 'A' ? bidA : bidB;
   const oppBid = role === 'A' ? bidB : bidA;
+  const oppRole = role === 'A' ? 'B' : 'A';
   const mySlot = role === 'A' ? out.slotA : out.slotB;
   const myPay  = role === 'A' ? out.payoffA : out.payoffB;
   const br = bestResponse(role, oppBid);
@@ -526,7 +527,7 @@ function lastRoundFeedbackHTML(prevRound) {
     : `That was the best you could have done.`;
   return `
     <div class="feedback-banner">
-      Last round your bid was <strong>${myBid}</strong> and your opponent's was <strong>${oppBid}</strong>. You won ${slotLabel} slot. Your payoff was <strong>${fmtNum(myPay)}</strong>. ${tail}
+      Last round your bid was <strong>${myBid}</strong>; your opponents bid <strong>${oppBid}</strong> (${oppRole}) and <strong>${C_BID}</strong> (C). You won ${slotLabel} slot. Your payoff was <strong>${fmtNum(myPay)}</strong>. ${tail}
     </div>
   `;
 }
@@ -572,7 +573,7 @@ function renderStudentRound(cr, expStart, numRounds, roundSecs, now) {
           <button class="primary submit-btn" id="btn-submit">Submit bid</button>
         </div>
       </div>
-      <p class="small mt">If you don't submit, a default bid will be filled in for you (21 in round 1; otherwise based on your opponent's previous-round bid).</p>
+      <p class="small mt">If you don't submit, a default bid will be filled in for you (21 in round 1; otherwise based on the previous round's bids).</p>
     </div>
   `;
 
@@ -663,7 +664,6 @@ function historyTableHTML(rows, compact) {
   const bHeadClass = mineB ? 'col-mine-b' : '';
   const aCellCls   = mineA ? 'mine-a-cell' : '';
   const bCellCls   = mineB ? 'mine-b-cell' : '';
-  const autoTag = '<span class="tag tag-muted" style="font-size:10px">auto</span>';
   const body = rows.map(r => {
     if (r.pending) return `<tr><td>${r.round}</td><td colspan="6" class="muted">(pending)</td></tr>`;
     const better = r.brPay > r.myPay + 0.0001;
@@ -672,8 +672,8 @@ function historyTableHTML(rows, compact) {
       : `<td class="muted">${r.brBid} → ${fmtNum(r.brPay)} (same or worse)</td>`;
     return `<tr>
       <td>${r.round}</td>
-      <td class="${aCellCls}">${r.bidA}${r.autoA ? ' ' + autoTag : ''}</td>
-      <td class="${bCellCls}">${r.bidB}${r.autoB ? ' ' + autoTag : ''}</td>
+      <td class="${aCellCls}">${r.bidA}</td>
+      <td class="${bCellCls}">${r.bidB}</td>
       <td class="muted">${C_BID}</td>
       <td>${slotLabel(r.mySlot)}</td>
       <td class="${r.myPay > 0 ? 'good' : r.myPay < 0 ? 'bad' : ''}">${fmtNum(r.myPay)}</td>
@@ -699,7 +699,7 @@ function historyTableHTML(rows, compact) {
 function ruleSummaryHTML(compact=false) {
   return `
     <div class="info-box">
-      <strong>Rules.</strong> You and your opponent each bid an integer from 1 to 100 for two ad slots. A third passive bidder C bids ${C_BID}. Highest bid wins the top slot (${CLICKS_TOP} clicks). Second-highest wins the second slot (${CLICKS_SECOND} clicks). Third gets nothing. If you win a slot, your payoff for that round is <em>clicks × (your value − your bid)</em>. Your value per click is <strong>${valueOf(studentState.role)}</strong>. Ties are broken at random.
+      <strong>Rules.</strong> You and your two opponents each bid an integer from 1 to 100 for two ad slots. Highest bid wins the top slot (${CLICKS_TOP} clicks). Second-highest wins the second slot (${CLICKS_SECOND} clicks). Third gets nothing. If you win a slot, your payoff for that round is <em>clicks × (your value − your bid)</em>. Your value per click is <strong>${valueOf(studentState.role)}</strong>. Ties are broken at random.
       ${compact ? '' : '<br><br>The experiment has multiple rounds. Each round lasts a fixed time; results appear at the start of the next round.'}
     </div>
   `;
